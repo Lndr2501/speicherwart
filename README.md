@@ -4,6 +4,14 @@ Menüleisten-App für macOS, die den Speicher im Blick behält: zeigt, was wie v
 
 *A macOS menu bar app that watches your disk space, finds junk and large files, and warns you before the disk fills up. UI is in German.*
 
+<p align="center">
+  <img src="docs/screenshots/menueleiste.png" alt="Speicherwart in der Menüleiste: freier Speicher, Kategorien, 7-Tage-Trend und Aufräumen" width="360">
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/analyse-uebersicht.png" alt="Analyse-Fenster, Übersicht: Kreisdiagramm und größte Ordner" width="820">
+</p>
+
 ## Funktionen
 
 **Menüleiste**
