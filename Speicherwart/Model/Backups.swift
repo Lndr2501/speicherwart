@@ -88,20 +88,22 @@ enum Backups {
 }
 
 enum Trasher {
-    /// Verschiebt Dateien in den Papierkorb (rückgängig machbar). Nur innerhalb von Home und /Applications.
-    static func moveToTrash(_ urls: [URL]) -> (moved: [URL], failures: [String]) {
-        let home = Paths.home.resolvingSymlinksInPath().path + "/"
+    /// Entfernt Dateien: standardmäßig in den Papierkorb (rückgängig machbar), mit `permanent` sofort und endgültig.
+    /// Jeder Eintrag läuft zuerst durch `DeleteGuard`.
+    static func remove(_ urls: [URL], permanent: Bool) -> (moved: [URL], failures: [String]) {
         var moved: [URL] = []
         var failures: [String] = []
         for url in urls {
-            let path = url.resolvingSymlinksInPath().path
-            let trash = Paths.inHome(".Trash").path + "/"
-            guard (path.hasPrefix(home) || path.hasPrefix("/Applications/")), !path.hasPrefix(trash) else {
-                failures.append("\(url.lastPathComponent): außerhalb erlaubter Ordner")
+            if let reason = DeleteGuard.blockReason(url) {
+                failures.append("\(url.lastPathComponent): \(reason)")
                 continue
             }
             do {
-                try FileManager.default.trashItem(at: url, resultingItemURL: nil)
+                if permanent {
+                    try FileManager.default.removeItem(at: url)
+                } else {
+                    try FileManager.default.trashItem(at: url, resultingItemURL: nil)
+                }
                 moved.append(url)
             } catch {
                 failures.append("\(url.lastPathComponent): \(error.localizedDescription)")

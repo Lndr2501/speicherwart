@@ -4,7 +4,6 @@ import SwiftUI
 struct CloudView: View {
     let state: AppState
     @State private var pendingEvict: [CloudFile] = []
-    @State private var pendingOrphan: CloudDomain?
 
     var body: some View {
         let active = state.cloud.filter(\.isActive)
@@ -48,17 +47,6 @@ struct CloudView: View {
             }
         } message: {
             Text("Gibt \(formatBytes(pendingEvict.reduce(0) { $0 + $1.size })) frei. Die Dateien bleiben in der Cloud.")
-        }
-        .confirmationDialog(
-            "Verwaiste Kopie in den Papierkorb verschieben?",
-            isPresented: Binding(get: { pendingOrphan != nil }, set: { if !$0 { pendingOrphan = nil } })
-        ) {
-            Button("In den Papierkorb", role: .destructive) {
-                if let o = pendingOrphan { Task { await state.moveToTrash([o.url]) } }
-                pendingOrphan = nil
-            }
-        } message: {
-            Text("„\(pendingOrphan?.folderName ?? "")“ (\(formatBytes(pendingOrphan?.localSize ?? 0))) wird nicht mehr synchronisiert. Dateien, die nur hier liegen, sind nach dem Leeren des Papierkorbs weg.")
         }
     }
 
@@ -112,8 +100,10 @@ struct CloudView: View {
             Text(formatBytes(d.localSize)).monospacedDigit()
             Button("Im Finder zeigen") { NSWorkspace.shared.activateFileViewerSelecting([d.url]) }
                 .controlSize(.small)
-            Button("In den Papierkorb …") { pendingOrphan = d }
-                .controlSize(.small)
+            Button("Löschen …") {
+                state.requestDelete([DeleteTarget(url: d.url, size: d.localSize, name: d.folderName)])
+            }
+            .controlSize(.small)
         }
     }
 }

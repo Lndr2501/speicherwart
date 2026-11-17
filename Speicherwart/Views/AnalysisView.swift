@@ -59,6 +59,17 @@ struct AnalysisView: View {
                     .padding(.horizontal, 12).padding(.vertical, 6)
                 }
             }
+            .overlay {
+                if state.isRemoving {
+                    VStack(spacing: 8) {
+                        ProgressView()
+                        Text("Lösche …").font(.callout).foregroundStyle(.secondary)
+                    }
+                    .padding(20)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                }
+            }
+            .deleteConfirmation(state: state)
             .navigationTitle(tab?.rawValue ?? "Speicher-Analyse")
             .toolbar {
                 ToolbarItemGroup { status }
@@ -200,12 +211,27 @@ struct OverviewView: View {
                         Text(formatBytes(s.bytes)).monospacedDigit()
                         Text(total > 0 ? "\(Int((Double(s.bytes) / Double(total) * 100).rounded())) %" : "")
                             .monospacedDigit().foregroundStyle(.secondary).frame(width: 40, alignment: .trailing)
+                        if let url = s.url {
+                            DeleteButton(state: state, target: DeleteTarget(url: url, size: s.bytes, name: s.name))
+                        } else {
+                            Color.clear.frame(width: 18, height: 1)
+                        }
                     }
                     .font(.callout)
                     .padding(.vertical, 2)
                     .contentShape(Rectangle())
                     .onTapGesture { if let url = s.url { NSWorkspace.shared.activateFileViewerSelecting([url]) } }
                     .help(s.url == nil ? "" : "Klicken: im Finder zeigen")
+                    .contextMenu {
+                        if let url = s.url {
+                            Button("Im Finder zeigen") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+                            Divider()
+                            Button("Löschen …") {
+                                state.requestDelete([DeleteTarget(url: url, size: s.bytes, name: s.name)])
+                            }
+                            .disabled(DeleteGuard.blockReason(url) != nil)
+                        }
+                    }
                 }
                 Divider().padding(.vertical, 6)
                 Text("Größte Ordner").font(.headline)
@@ -223,8 +249,15 @@ struct OverviewView: View {
                                 }
                                 .buttonStyle(.borderless)
                                 .help("Im Finder zeigen")
+                                DeleteButton(state: state, target: f.deleteTarget)
                             }
                             .font(.callout)
+                            .contextMenu {
+                                Button("Im Finder zeigen") { NSWorkspace.shared.activateFileViewerSelecting([f.url]) }
+                                Divider()
+                                Button("Löschen …") { state.requestDelete([f.deleteTarget]) }
+                                    .disabled(DeleteGuard.blockReason(f.url) != nil)
+                            }
                         }
                     }
                 }
@@ -315,7 +348,6 @@ struct FileTable: View {
     let entries: [FileEntry]
     @State private var selection = Set<FileEntry.ID>()
     @State private var sortOrder = [KeyPathComparator(\FileEntry.size, order: .reverse)]
-    @State private var confirming = false
 
     private var selectedEntries: [FileEntry] { entries.filter { selection.contains($0.id) } }
 
@@ -351,13 +383,17 @@ struct FileTable: View {
                 }
                 .width(min: 90, ideal: 110)
             }
+            .onDeleteCommand { requestDelete(selection) }
+            .onChange(of: state.removalTick) {
+                selection.formIntersection(entries.map(\.id))
+            }
             .contextMenu(forSelectionType: FileEntry.ID.self) { ids in
                 Button("Im Finder zeigen") {
                     NSWorkspace.shared.activateFileViewerSelecting(ids.map { URL(fileURLWithPath: $0) })
                 }
-                Button("In den Papierkorb …") {
+                Button("Löschen …") {
                     selection = ids
-                    confirming = true
+                    requestDelete(ids)
                 }
             } primaryAction: { ids in
                 NSWorkspace.shared.activateFileViewerSelecting(ids.map { URL(fileURLWithPath: $0) })
@@ -374,24 +410,16 @@ struct FileTable: View {
                     NSWorkspace.shared.activateFileViewerSelecting(selectedEntries.map(\.url))
                 }
                 .disabled(selection.isEmpty)
-                Button("In den Papierkorb …") { confirming = true }
+                Button("Löschen …") { requestDelete(selection) }
                     .disabled(selection.isEmpty)
             }
             .font(.callout)
             .padding(10)
         }
-        .confirmationDialog(
-            "\(selection.count) Objekt(e) in den Papierkorb verschieben?",
-            isPresented: $confirming
-        ) {
-            Button("In den Papierkorb", role: .destructive) {
-                let urls = selectedEntries.map(\.url)
-                selection = []
-                Task { await state.moveToTrash(urls) }
-            }
-        } message: {
-            Text("Zusammen \(formatBytes(selectedSize)). Du kannst sie aus dem Papierkorb zurückholen.")
-        }
+    }
+
+    private func requestDelete(_ ids: Set<FileEntry.ID>) {
+        state.requestDelete(entries.filter { ids.contains($0.id) }.map(\.deleteTarget))
     }
 }
 
@@ -403,7 +431,6 @@ extension FileEntry {
 
 struct BackupsView: View {
     let state: AppState
-    @State private var pending: BackupEntry?
 
     var body: some View {
         let b = state.backups
@@ -438,17 +465,6 @@ struct BackupsView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .overlay { if !state.backupsLoaded { ProgressView() } }
-        .confirmationDialog(
-            "„\(pending?.title ?? "")“ in den Papierkorb verschieben?",
-            isPresented: Binding(get: { pending != nil }, set: { if !$0 { pending = nil } })
-        ) {
-            Button("In den Papierkorb", role: .destructive) {
-                if let p = pending { Task { await state.moveToTrash([p.url]) } }
-                pending = nil
-            }
-        } message: {
-            Text("\(formatBytes(pending?.size ?? 0)). Erst wenn du den Papierkorb leerst, ist der Platz frei.")
-        }
     }
 
     private var empty: some View {
@@ -475,8 +491,10 @@ struct BackupsView: View {
                 Text(d.formatted(date: .abbreviated, time: .omitted)).foregroundStyle(.secondary)
             }
             Text(formatBytes(e.size)).monospacedDigit().frame(width: 80, alignment: .trailing)
-            Button("In den Papierkorb …") { pending = e }
-                .controlSize(.small)
+            Button("Löschen …") {
+                state.requestDelete([DeleteTarget(url: e.url, size: e.size, name: e.title)])
+            }
+            .controlSize(.small)
         }
         .padding(.vertical, 4)
         .contextMenu {

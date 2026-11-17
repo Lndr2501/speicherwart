@@ -157,10 +157,20 @@ struct TreemapView: View {
             }
             .opacity(loading ? 0.4 : 1)
 
-            Text("Klick auf einen Ordner zeigt seinen Inhalt · Doppelklick zeigt ihn im Finder")
+            Text("Klick auf einen Ordner zeigt seinen Inhalt · Doppelklick zeigt ihn im Finder · Rechtsklick oder Papierkorb-Symbol zum Löschen")
                 .font(.caption).foregroundStyle(.secondary)
         }
         .padding(16)
+        .onChange(of: state.removalTick) {
+            // Gelöschtes sofort aus der aufgeklappten Ebene nehmen.
+            hovered = nil
+            let gone = state.lastRemoved.map(\.id)
+            levelItems.removeAll { i in gone.contains { i.id == $0 || i.id.hasPrefix($0 + "/") } }
+        }
+    }
+
+    private func deleteTarget(_ item: TreemapItem) -> DeleteTarget? {
+        item.url.map { DeleteTarget(url: $0, size: item.size, name: item.name) }
     }
 
     private func tile(_ item: TreemapItem, rect: CGRect, slot: Int) -> some View {
@@ -181,6 +191,24 @@ struct TreemapView: View {
                     .padding(5)
                 }
             }
+            .overlay(alignment: .topTrailing) {
+                // Papierkorb-Knopf nur beim Überfahren und nur, wenn das Feld groß genug ist.
+                if hovered?.id == item.id, inset.width > 70, inset.height > 34,
+                   let target = deleteTarget(item), DeleteGuard.blockReason(target.url) == nil {
+                    Button {
+                        state.requestDelete([target])
+                    } label: {
+                        Image(systemName: "trash")
+                            .font(.caption)
+                            .foregroundStyle(.white)
+                            .padding(5)
+                            .background(.black.opacity(0.4), in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .padding(4)
+                    .help("Löschen …")
+                }
+            }
             .frame(width: max(0, inset.width), height: max(0, inset.height))
             .offset(x: inset.minX, y: inset.minY)
             .onHover { inside in hovered = inside ? item : (hovered?.id == item.id ? nil : hovered) }
@@ -196,6 +224,11 @@ struct TreemapView: View {
             .contextMenu {
                 if let url = item.url {
                     Button("Im Finder zeigen") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+                    Divider()
+                    Button("Löschen …") {
+                        if let t = deleteTarget(item) { state.requestDelete([t]) }
+                    }
+                    .disabled(DeleteGuard.blockReason(url) != nil)
                 }
             }
     }

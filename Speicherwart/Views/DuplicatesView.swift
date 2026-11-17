@@ -5,7 +5,6 @@ struct DuplicatesView: View {
     @Bindable var state: AppState
     @State private var minSize: Int64 = 10_000_000
     @State private var marked = Set<String>()
-    @State private var confirming = false
 
     var body: some View {
         let groups = state.duplicates ?? []
@@ -99,24 +98,22 @@ struct DuplicatesView: View {
                     }
                     .help("Markiert in jeder Gruppe alles außer der ältesten Datei")
                     Button("Markierung aufheben") { marked = [] }.disabled(marked.isEmpty)
-                    Button("In den Papierkorb …") { confirming = true }.disabled(marked.isEmpty)
+                    Button("Löschen …") { requestDelete(groups) }.disabled(marked.isEmpty)
                 }
                 .font(.callout)
                 .padding(10)
             }
         }
-        .confirmationDialog("\(marked.count) Datei(en) in den Papierkorb verschieben?", isPresented: $confirming) {
-            Button("In den Papierkorb", role: .destructive) {
-                // Sicherung: Sind alle Dateien einer Gruppe markiert, bleibt die älteste stehen.
-                let urls = (state.duplicates ?? []).flatMap { g -> [URL] in
-                    let m = g.files.filter { marked.contains($0.id) }
-                    return (m.count == g.files.count ? Array(m.dropFirst()) : m).map(\.url)
-                }
-                marked = []
-                Task { await state.moveToTrash(urls) }
-            }
-        } message: {
-            Text("Zusammen \(formatBytes(markedSize)). Von jeder Gruppe bleibt immer mindestens eine Datei erhalten.")
+        .onChange(of: state.removalTick) { marked = [] }
+    }
+
+    /// Sicherung: Sind alle Dateien einer Gruppe markiert, bleibt die älteste stehen.
+    private func requestDelete(_ groups: [DuplicateGroup]) {
+        let targets = groups.flatMap { g -> [DeleteTarget] in
+            let m = g.files.filter { marked.contains($0.id) }
+            return (m.count == g.files.count ? Array(m.dropFirst()) : m)
+                .map { DeleteTarget(url: $0.url, size: g.size) }
         }
+        state.requestDelete(targets)
     }
 }

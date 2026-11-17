@@ -30,6 +30,12 @@ final class AppState {
     var backups = BackupsResult()
     var backupsLoaded = false
     var trashMessage: String?
+    /// Wartet auf Bestätigung im Löschdialog (gemeinsam für alle Ansichten).
+    var pendingDelete: [DeleteTarget] = []
+    var isRemoving = false
+    /// Zuletzt entfernte Einträge; `removalTick` zählt hoch, damit Ansichten (Treemap) nachziehen.
+    var lastRemoved: [DeleteTarget] = []
+    var removalTick = 0
 
     // Phase 3: Cloud, Verlauf, Autostart
     var cloud: [CloudDomain] = []
@@ -259,24 +265,53 @@ extension AppState {
         backupsLoaded = true
     }
 
-    /// Verschiebt in den Papierkorb und aktualisiert Listen und Balken.
-    func moveToTrash(_ urls: [URL]) async {
-        let result = await Task.detached(priority: .userInitiated) { Trasher.moveToTrash(urls) }.value
+    /// Öffnet den Löschdialog. Geschützte Einträge werden aussortiert und gemeldet.
+    func requestDelete(_ targets: [DeleteTarget]) {
+        guard !isRemoving else { return }
+        var allowed: [DeleteTarget] = []
+        var blocked: [String] = []
+        for t in DeleteGuard.collapsed(targets) {
+            if let reason = DeleteGuard.blockReason(t.url) {
+                blocked.append("\(t.name): \(reason)")
+            } else {
+                allowed.append(t)
+            }
+        }
+        if !blocked.isEmpty { trashMessage = "Nicht gelöscht: " + blocked.joined(separator: " · ") }
+        pendingDelete = allowed
+    }
+
+    /// Führt die bestätigte Löschung aus und zieht Analyse, Listen und Balken nach.
+    func confirmDelete(_ targets: [DeleteTarget], permanent: Bool) async {
+        guard !targets.isEmpty, !isRemoving else { return }
+        isRemoving = true
+        let urls = targets.map(\.url)
+        let result = await Task.detached(priority: .userInitiated) {
+            Trasher.remove(urls, permanent: permanent)
+        }.value
         let moved = Set(result.moved.map(\.path))
+        let done = targets.filter { moved.contains($0.url.path) }
+
         if let a = analysis {
-            analysis = AnalysisResult(
-                date: a.date, duration: a.duration, homeTotal: a.homeTotal, folders: a.folders,
-                bigFiles: a.bigFiles.filter { !moved.contains($0.path) }
-            )
+            analysis = a.removing(done, toTrash: !permanent)
             Analyzer.save(analysis!)
         }
         if var groups = duplicates {
             for i in groups.indices { groups[i].files.removeAll { moved.contains($0.url.path) } }
             duplicates = groups.filter { $0.files.count > 1 }
         }
-        var msg = "\(result.moved.count) in den Papierkorb verschoben"
+        lastRemoved = done
+        removalTick += 1
+        refreshDisk()
+
+        let size = formatBytes(done.reduce(0) { $0 + $1.size })
+        var msg = permanent
+            ? "\(done.count) endgültig gelöscht (\(size) frei)"
+            : "\(done.count) in den Papierkorb verschoben (\(size)). Frei wird der Platz erst nach dem Leeren."
         if !result.failures.isEmpty { msg += " · Fehler: " + result.failures.joined(separator: ", ") }
         trashMessage = msg
+        isRemoving = false
+
         await loadBackups()
         await loadCloud()
         await scan()

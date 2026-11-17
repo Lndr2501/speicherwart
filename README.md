@@ -32,13 +32,17 @@ Menüleisten-App für macOS, die den Speicher im Blick behält: zeigt, was wie v
 - **Cloud:** lokal geladene Dateien von File-Provider-Konten (iCloud, SeaDrive, Nextcloud …) per „Download entfernen“ freigeben, verwaiste Kopien entfernter Konten erkennen
 - **Verlauf:** stündliche Messung, Kurve und Veränderung pro Kategorie
 
+**Löschen direkt aus der Ansicht:** Übersicht (Legende und „Größte Ordner“), Treemap (Rechtsklick oder Papierkorb-Symbol beim Überfahren), Große Dateien, Lange ungenutzt, Duplikate, Backups und verwaiste Cloud-Kopien nutzen denselben Dialog: **In den Papierkorb** (rückgängig machbar) oder **Endgültig löschen** (sofort frei). In Tabellen geht auch die Entf-Taste.
+
 **Widget** (klein und mittel) für Schreibtisch und Mitteilungszentrale.
 
 ## Sicherheit
 
 - Gelöscht wird nur innerhalb fest definierter Ordner (Caches, Logs, Temp, Papierkorb …). Rust-`target`-Ordner nur, wenn daneben eine `Cargo.toml` liegt.
 - Caches laufender Apps und von `com.apple.*` bleiben unangetastet.
-- Große Dateien, Backups und Duplikate wandern in den Papierkorb, nicht direkt ins Nichts.
+- Aus den Analyse-Ansichten wandert Gelöschtes standardmäßig in den Papierkorb. „Endgültig löschen“ ist eine eigene Wahl im Bestätigungsdialog.
+- Geschützt sind ganze Systemordner (Home, `~/Library`, `~/Library/Application Support`, Desktop, Dokumente, Downloads, `/Applications` selbst …), Schlüssel und Passwörter (`~/.ssh`, `~/.gnupg`, Schlüsselbunde) und der Papierkorb. Ihre Inhalte lassen sich einzeln löschen.
+- Der Dialog warnt bei Git-Repositories (nicht gepushte Änderungen) und bei Cloud-Ordnern (Löschen wirkt auch in der Cloud).
 - Cloud-Dateien werden nur „entladen“, wenn sie vollständig hochgeladen sind.
 - Cloud-Ordner werden beim Duplikat-Vergleich nie gelesen, damit nichts heruntergeladen wird.
 
@@ -79,7 +83,7 @@ $S --duplicates  # Duplikate ab 10 MB
 ```
 Speicherwart/
   App.swift              Einstieg, Menüleiste, Analyse-Fenster, Terminal-Modi
-  Model/                 Scanner, Müll-Katalog, Analyse, Cloud, Verlauf, Duplikate
+  Model/                 Scanner, Müll-Katalog, Analyse, Cloud, Verlauf, Duplikate, Löschschutz (Deletion)
   Views/                 Popover, Analyse-Bereiche, Treemap, Palette
   Shared/                Datenaustausch App ↔ Widget
 Widget/                  WidgetKit-Erweiterung
